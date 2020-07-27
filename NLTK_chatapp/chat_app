@@ -1,0 +1,124 @@
+import pandas as pd
+import numpy
+import nltk
+from nltk.stem import wordnet
+from nltk.stem import WordNetLemmatizer
+import re
+from nltk import pos_tag
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from nltk.corpus import stopwords
+from nltk import word_tokenize
+from sklearn.metrics import pairwise_distances
+from sklearn.metrics.pairwise import cosine_similarity
+import os
+
+url = ('D:/DataSets/Worked on/dialog_talk_agent.csv')
+cols = ["Context", "Text response"]
+data = pd.read_csv(url, names=cols, encoding='unicode_escape')
+
+data.ffill(axis=0, inplace=True)
+
+data_copy = data.head(10)
+
+def step1(x):
+    for i in x:
+        s = str(i).lower()
+        p = re.sub(r'[^a-z0-9]', ' ', s)
+        print(p)
+    return 0
+
+# function to normalise
+def text_normalization(text):
+    text = str(text).lower()
+    spc_char = re.sub(r'[^a-z0-9]', ' ', text)
+    tokens = word_tokenize(spc_char)
+    tags_list_pos = pos_tag(tokens)
+    lem=WordNetLemmatizer()
+    lema_word = []
+    # there are two variables to check in the list of tag_list_pos created after utilising the pos tag
+    for token, pos_token in tags_list_pos:
+        if pos_token.startswith("V"):
+            pos_val = "v"
+        elif pos_token.startswith("J"):
+            pos_val = "a"
+        elif pos_token.startswith("R"):
+            pos_val = "r"
+        else:
+            pos_val = 'n'
+
+        lema_token =lem.lemmatize(token,pos_val)
+        lema_word.append(lema_token)
+    return " ".join(lema_word)
+
+#applying it on our dataset
+
+data["Lemmatised content"]=data["Context"].apply(text_normalization)
+
+#Vectorization
+#bag of words
+cv=CountVectorizer()
+X=cv.fit_transform(data["Lemmatised content"]).toarray()
+feature=cv.get_feature_names()
+data_bow=pd.DataFrame(X,columns=feature)
+print(data_bow.head())
+stop=stopwords.words('english')
+
+#Example
+Question="What is the weather?"
+Q=[]
+a=Question.split()
+for i in a:
+    if i not in stop:
+        Q.append(i)
+    else:
+        continue
+    b=" ".join(Q)
+Q_lemma=text_normalization(b)
+Q_bow=cv.transform([Q_lemma]).toarray()
+
+
+#Define a similar response to the question asked
+cos_value=1-pairwise_distances(data_bow,Q_bow,metric='cosine')
+print(cos_value)
+data['Similarity bow']=cos_value
+
+
+data_simi=pd.DataFrame(data,columns=['Text response','Similarity bow'])
+
+data_simi_sort=data_simi.sort_values(by='Similarity bow',ascending=False)
+
+threshold=0.2
+data_threshold=data_simi_sort[data_simi_sort['Similarity bow']>threshold]
+
+index_value=cos_value.argmax()
+
+print(data['Text response'].loc[index_value])
+
+def stopword_(text):
+    tag_list=pos_tag(nltk.word_tokenize(text),tagset=None)
+    stop=stopwords.words('english')
+    lema=wordnet.WordNetLemmatizer()
+    lema_word=[]
+    for token,pos_tag in tag_list:
+        if token in stop:
+            continue
+        elif pos_tag.startswith('V'):
+            pos_val = "v"
+        elif pos_tag.startswith("J"):
+            pos_val = "a"
+        elif pos_tag.startswith("R"):
+            pos_val = "r"
+        else:
+            pos_val = 'n'
+        lema_token=lema.lemmatize(token,pos_tag)
+        lema_word.append(lema_token)
+    return "".join(lema_word)
+
+def chat_bow(text):
+    s=stopword_(text)
+    lemma=text_normalization(s) # calling the function to perform text normalization
+    bow= cv.transform([lemma]).toarray() # applying bow
+    cosine_value = 1- pairwise_distances(data_bow, bow, metric ='cosine')
+    index_value=cosine_value.argmax() # getting index value
+    return data['Text Response'].loc[index_value]
